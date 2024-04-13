@@ -1,3 +1,3 @@
-diploma work (2024), BSU
-topic: voting (tls-connection)
+diploma work (2024), BSU <br />
+topic: voting (tls-connection) <br />
 stack: python
