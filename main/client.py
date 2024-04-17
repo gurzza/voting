@@ -19,7 +19,7 @@ def get_client_cert_key():
         if os.path.isfile(path_to_cert):
             is_find_cert = True
         else:
-            print('Incorrect path\'{}\'! Try one more time...'.format(path_to_cert))
+            print('Incorrect path \'{}\'! Try one more time...'.format(path_to_cert))
 
     is_find_key = False
     while not is_find_key:
@@ -27,7 +27,7 @@ def get_client_cert_key():
         if os.path.isfile(path_to_key):
             is_find_key = True
         else:
-            print('Incorrect path\'{}\'! Try one more time...'.format(path_to_key))
+            print('Incorrect path \'{}\'! Try one more time...'.format(path_to_key))
 
     return path_to_cert, path_to_key
 
@@ -56,6 +56,9 @@ def connect_to_server(client_cert_path: str, client_key_path: str, ca_cert_path=
     return conn
 
 
+
 if __name__ == "__main__":
+
+
     path_client_cert, path_client_key = get_client_cert_key()
     s_conn = connect_to_server(path_client_cert, path_client_key)
