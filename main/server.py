@@ -3,8 +3,8 @@ import socket
 import ssl
 import threading
 import time
-
 import psycopg2
+from common_functions import *
 
 HOST = "127.0.0.1"
 PORT = 60000
@@ -19,10 +19,8 @@ def connect_to_db():
     Connects to DB (localhost)
     :return: connection, cursor
     """
-    conn = psycopg2.connect(host='localhost',
-                            dbname='postgres',
-                            user='postgres',
-                            password='12345678',
+    conn = psycopg2.connect(host='localhost', dbname='postgres',
+                            user='postgres', password='12345678',
                             port=5432)
 
     cur = conn.cursor()
@@ -55,7 +53,7 @@ def check_is_eligible(client_cert: dict, db_conn, db_cur):
     """
     # cert = {subject, issuer, version, serialNumber, notBefore, notAfter}
     #         subject = {'countryName', 'stateOrProvinceName', 'localityName', 'organizationName', 'commonName'}
-    user_name = client_cert['subject'][-1][-1][-1]
+    user_name = get_commonName(client_cert)  #['subject'][-1][-1][-1]
 
     db_cur.execute('''
         SELECT CASE WHEN EXISTS (SELECT 1 FROM eligible_voters WHERE name = '{}') THEN true ELSE false END;
@@ -68,7 +66,10 @@ def check_is_eligible(client_cert: dict, db_conn, db_cur):
 def threaded_client(c_conn, db_conn, db_cur):
     client_cert = c_conn.getpeercert()
     is_eligible = check_is_eligible(client_cert, db_conn, db_cur)
-    print('result:', is_eligible)
+    #print('result:', is_eligible)
+    if not is_eligible:
+        c_conn.send('False'.encode())
+        return
 
 
 def close_connection_to_db(conn, cur):

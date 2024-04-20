@@ -40,25 +40,25 @@ def connect_to_server(client_cert_path: str, client_key_path: str, ca_cert_path=
     :param ca_cert_path: path to CA certificate
     :return: socket to server
     """
-
     PORT = SERVER_PORT
     HOST = SERVER_HOST
 
     conn = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    #conn.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-
     conn = ssl.wrap_socket(conn, keyfile=client_key_path, certfile=client_cert_path,
                            cert_reqs=ssl.CERT_REQUIRED, ca_certs=ca_cert_path, ssl_version=ssl.PROTOCOL_TLSv1_2)
-
-    #conn.bind((HOST, PORT))
     conn.connect((HOST, PORT))
-
     return conn
 
 
+def communicate_with_server(s_conn):
+    # aswer has the user the right to take part in voting
+    is_elig = s_conn.recv(1024).decode()
+    if is_elig == 'False':
+        print('You have not the right to take park in the elections!\n')
+        return
+
 
 if __name__ == "__main__":
-
-
     path_client_cert, path_client_key = get_client_cert_key()
     s_conn = connect_to_server(path_client_cert, path_client_key)
+    communicate_with_server(s_conn)
