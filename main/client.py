@@ -2,6 +2,10 @@ import json
 import os.path
 import socket
 import ssl
+
+from cryptography.hazmat.backends import default_backend
+
+from common_functions import *
 from server import HOST as SERVER_HOST
 from server import PORT as SERVER_PORT
 
@@ -50,15 +54,47 @@ def connect_to_server(client_cert_path: str, client_key_path: str, ca_cert_path=
     return conn
 
 
-def communicate_with_server(s_conn):
-    # aswer has the user the right to take part in voting
-    is_elig = s_conn.recv(1024).decode()
+def communicate_with_server(s_conn, server_cert_pem, user_CN):
+    # server answer: has the user the right to take part in voting
+    is_elig = s_conn.recv(1024).decode('utf-8')
+
     if is_elig == 'False':
-        print('You have not the right to take park in the elections!\n')
+        server_message = s_conn.recv(1024).decode('utf-8')
+        s_server_message = s_conn.recv(1024)
+        if verify_sign(server_message, s_server_message, server_cert_pem):
+            if user_CN in server_message:
+                print('FROM SERVER: ', server_message)
+            else:
+                print('SOMEONE TRIES TO DAMAGE YOUR CONNECTION!')
+        else:
+            print('SOMEONE HAS INTERCEPTED YOUR CONNECTION!')
         return
+
+    elif is_elig == 'True':
+        cand_list_json_str = s_conn.recv(1024).decode('utf-8')
+        cand_list_s = s_conn.recv(1024)
+        if verify_sign(cand_list_json_str, cand_list_s, server_cert_pem):
+            cand_list = json.loads(cand_list_json_str)
+            print(cand_list)
+
+        else:
+            print('BLANK WAS REPLACED!!!')
+            return
+
+    else:
+        print('Unexpected message...')
 
 
 if __name__ == "__main__":
+
     path_client_cert, path_client_key = get_client_cert_key()
     s_conn = connect_to_server(path_client_cert, path_client_key)
-    communicate_with_server(s_conn)
+    #print(s_conn.getpeercert())
+    with open(path_client_cert, 'r') as f:
+        client_cer = f.read()
+        user_CN = get_common_name_from_pem(client_cer)
+
+    server_pem_cer = der_cert_to_pem(s_conn.getpeercert(binary_form=True))
+    #print(server_pem_cer)
+
+    communicate_with_server(s_conn, server_pem_cer, user_CN)

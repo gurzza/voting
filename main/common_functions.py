@@ -1,4 +1,5 @@
 from cryptography import x509
+from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives import serialization
 from Crypto.Cipher import PKCS1_OAEP
 from Crypto.PublicKey import RSA
@@ -76,6 +77,13 @@ def verify_sign(data_to_ver: str, signature: bytes, public_key):
     return verifier.verify(digest, base64.b64decode(signature))
 
 
+def der_cert_to_pem(cert_der):
+    #cert_der = s_conn.getpeercert(binary_form=True)
+    cert = x509.load_der_x509_certificate(cert_der, default_backend())
+    pem_certificate = cert.public_bytes(encoding=serialization.Encoding.PEM)
+    return pem_certificate.decode('utf-8')
+
+
 def read_pub_key_from_cert(cert):
     """
     Extract public key from certificate
@@ -92,6 +100,14 @@ def read_pub_key_from_cert(cert):
     pub_key_string = public_pem.decode("utf-8")
     return pub_key_string
 
+
+def get_common_name_from_pem(pem_certificate):
+    cert = x509.load_pem_x509_certificate(pem_certificate.encode('utf-8'), default_backend())
+    common_name = cert.subject.get_attributes_for_oid(x509.NameOID.COMMON_NAME)[0].value
+    return common_name
+
+
+#def produce_hmac(message: str, key)
 
 #
 if __name__ == "__main__":

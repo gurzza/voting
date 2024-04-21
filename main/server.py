@@ -4,6 +4,7 @@ import ssl
 import threading
 import time
 import psycopg2
+
 from common_functions import *
 
 HOST = "127.0.0.1"
@@ -63,13 +64,26 @@ def check_is_eligible(client_cert: dict, db_conn, db_cur):
     return is_present
 
 
-def threaded_client(c_conn, db_conn, db_cur):
+def threaded_client(c_conn, db_conn, db_cur, priv_key, cand_list):
     client_cert = c_conn.getpeercert()
     is_eligible = check_is_eligible(client_cert, db_conn, db_cur)
-    #print('result:', is_eligible)
+
     if not is_eligible:
         c_conn.send('False'.encode())
+        message = '{} has not right to take part in this voting!'.format(get_commonName(client_cert))
+        c_conn.send(message.encode('utf-8'))
+        # HINT: sign this message to avoid MITM (ex: someone intercept your connection and without signature
+        #  can break up connection)
+        s_message = sign_data(message, priv_key)
+        c_conn.send(s_message)
         return
+
+    else:
+        c_conn.send('True'.encode())
+        cand_list_json_str = json.dumps(cand_list)
+        c_conn.send(cand_list_json_str.encode('utf-8'))
+        cand_list_s = sign_data(cand_list_json_str, priv_key)
+        c_conn.send(cand_list_s)
 
 
 def close_connection_to_db(conn, cur):
@@ -80,11 +94,15 @@ def close_connection_to_db(conn, cur):
 if __name__ == "__main__":
     server_sock = server_net_prep()
 
-    cand_list = {'Cand1': 'Ivanov',
-                 'Cand2': 'Smirnov',
-                 'Cand3': 'Petrov'}
+    # FIXME: read from file or sign file with candidates and check signature?
+    cand_list = {'Cand1': 'Green',
+                 'Cand2': 'Blue',
+                 'Cand3': 'Yellow'}
 
     db_conn, db_cur = connect_to_db()
+
+    with open(SERVER_KEY_PATH, 'r') as f:
+        priv_key = f.read()
 
     num_conn = 0
     # TODO: add timer till the end of voting
@@ -92,7 +110,7 @@ if __name__ == "__main__":
         c_conn, client_address = server_sock.accept()
         client_handler = threading.Thread(
             target=threaded_client,
-            args=(c_conn, db_conn, db_cur)
+            args=(c_conn, db_conn, db_cur, priv_key, cand_list)
         )
         client_handler.start()
         num_conn += 1
