@@ -54,6 +54,53 @@ def connect_to_server(client_cert_path: str, client_key_path: str, ca_cert_path=
     return conn
 
 
+def make_choice(empty_bulletin):
+    is_agree = False
+    candidates = empty_bulletin.values()
+
+    while not is_agree:
+        candidates_copy = list(candidates).copy()
+        bulletin = []
+        while candidates_copy:
+            print("Choose the most desirable candidate from the remaining list:")
+            for i in range(len(candidates_copy)):
+                print(i + 1, '. ', candidates_copy[i], sep='')
+            cand_n = int(input())
+            if cand_n > len(candidates_copy) or cand_n < 1:
+                print('Incorrect number!')
+                continue
+            bulletin.append(candidates_copy[cand_n - 1])
+            del candidates_copy[cand_n - 1]
+
+        print('Your choices (from top to bottom):')
+        for i in range(len(bulletin)):
+            print(i + 1, ': ', bulletin[i], sep='')
+
+        choice = int(input('Are you sure in your choices? To commit enter \'1\', else \'2\': '))
+        is_agree = True if choice == 1 else False
+
+    #print(bulletin)
+    return bulletin
+
+
+def bulletin_to_numbers(bulletin: list, cand_ordered: list):
+    """
+    format: i, pos in orginal list +1, 00; i+1, pos in original list +1, 00; ...
+    :param bulletin: candidates ordered by VOTER
+    :param cand_ordered: original list of candidates
+    """
+    num_bulletin = ''
+
+    i = 0
+    for cand in bulletin:
+        i += 1
+        num_bulletin += str(i)
+        num_bulletin += str(cand_ordered.index(cand)+1)
+        num_bulletin += '00'
+
+    return num_bulletin
+
+
 def communicate_with_server(s_conn, server_cert_pem, user_CN):
     # server answer: has the user the right to take part in voting
     is_elig = s_conn.recv(1024).decode('utf-8')
@@ -71,11 +118,17 @@ def communicate_with_server(s_conn, server_cert_pem, user_CN):
         return
 
     elif is_elig == 'True':
+        # get candidates list from server and check signature (currently: server key)
         cand_list_json_str = s_conn.recv(1024).decode('utf-8')
         cand_list_s = s_conn.recv(1024)
         if verify_sign(cand_list_json_str, cand_list_s, server_cert_pem):
             cand_list = json.loads(cand_list_json_str)
-            print(cand_list)
+            # print('List of all candidates:')
+            # for cand_num in cand_list.keys():
+            #     print(cand_num, ': ', cand_list[cand_num], sep='')
+            bulletin = make_choice(cand_list)
+            bulletin_num = bulletin_to_numbers(bulletin, list(cand_list.values()))
+            print(bulletin_num)
 
         else:
             print('BLANK WAS REPLACED!!!')
@@ -86,7 +139,6 @@ def communicate_with_server(s_conn, server_cert_pem, user_CN):
 
 
 if __name__ == "__main__":
-
     path_client_cert, path_client_key = get_client_cert_key()
     s_conn = connect_to_server(path_client_cert, path_client_key)
     #print(s_conn.getpeercert())

@@ -80,10 +80,15 @@ def threaded_client(c_conn, db_conn, db_cur, priv_key, cand_list):
 
     else:
         c_conn.send('True'.encode())
+        # send candidates list and signature
+        # TODO: add read from file (?)
         cand_list_json_str = json.dumps(cand_list)
         c_conn.send(cand_list_json_str.encode('utf-8'))
         cand_list_s = sign_data(cand_list_json_str, priv_key)
         c_conn.send(cand_list_s)
+
+        # get bulletin from votes and check signature
+        #bulletin = c_conn.recv(1024)
 
 
 def close_connection_to_db(conn, cur):
