@@ -1,5 +1,6 @@
 import json
 import os.path
+import random
 import socket
 import ssl
 
@@ -20,18 +21,18 @@ def get_client_cert_key():
     is_find_cert = False
     while not is_find_cert:
         path_to_cert = input('Enter path to your certificate: ')
-        if os.path.isfile(path_to_cert):
+        if os.path.isfile(path_to_cert) and path_to_cert.find('.cer') != -1:
             is_find_cert = True
         else:
-            print('Incorrect path \'{}\'! Try one more time...'.format(path_to_cert))
+            print('Incorrect path \'{}\' or file! Try one more time...'.format(path_to_cert))
 
     is_find_key = False
     while not is_find_key:
         path_to_key = input('Enter path to your private key: ')
-        if os.path.isfile(path_to_key):
+        if os.path.isfile(path_to_key) and path_to_key.find('.key') != -1:
             is_find_key = True
         else:
-            print('Incorrect path \'{}\'! Try one more time...'.format(path_to_key))
+            print('Incorrect path \'{}\' or file! Try one more time...'.format(path_to_key))
 
     return path_to_cert, path_to_key
 
@@ -85,23 +86,25 @@ def make_choice(empty_bulletin):
 
 def bulletin_to_numbers(bulletin: list, cand_ordered: list):
     """
-    format: i, pos in orginal list +1, 00; i+1, pos in original list +1, 00; ...
+    format: pos in original list +1, 00; pos in original list +1, 00; ...
     :param bulletin: candidates ordered by VOTER
     :param cand_ordered: original list of candidates
     """
     num_bulletin = ''
 
-    i = 0
+    #i = 0
     for cand in bulletin:
-        i += 1
-        num_bulletin += str(i)
-        num_bulletin += str(cand_ordered.index(cand)+1)
+        #i += 1
+        #num_bulletin += str(i)
+        num_bulletin += str(cand_ordered.index(cand) + 1)
+        # FIXME: bad idea for if amount of candidates >= 10
         num_bulletin += '00'
 
-    return num_bulletin
+    # add randomness to make each bulletin unique
+    return num_bulletin + str(random.randrange(100, 999))
 
 
-def communicate_with_server(s_conn, server_cert_pem, user_CN):
+def communicate_with_server(s_conn, server_cert_pem, user_CN, priv_key):
     # server answer: has the user the right to take part in voting
     is_elig = s_conn.recv(1024).decode('utf-8')
 
@@ -127,8 +130,13 @@ def communicate_with_server(s_conn, server_cert_pem, user_CN):
             # for cand_num in cand_list.keys():
             #     print(cand_num, ': ', cand_list[cand_num], sep='')
             bulletin = make_choice(cand_list)
+
+            # convert bulletin to numerical form, then encrypt, sign and send
             bulletin_num = bulletin_to_numbers(bulletin, list(cand_list.values()))
-            print(bulletin_num)
+            bulletin_num_enc = encrypt_data(bulletin_num, server_cert_pem)
+            bulletin_num_enc_s = sign_data(bulletin_num_enc, priv_key)
+            s_conn.send(bulletin_num_enc)
+            s_conn.send(bulletin_num_enc_s)
 
         else:
             print('BLANK WAS REPLACED!!!')
@@ -146,7 +154,10 @@ if __name__ == "__main__":
         client_cer = f.read()
         user_CN = get_common_name_from_pem(client_cer)
 
+    with open(path_client_key, 'r') as f:
+        priv_key = f.read()
+
     server_pem_cer = der_cert_to_pem(s_conn.getpeercert(binary_form=True))
     #print(server_pem_cer)
 
-    communicate_with_server(s_conn, server_pem_cer, user_CN)
+    communicate_with_server(s_conn, server_pem_cer, user_CN, priv_key)

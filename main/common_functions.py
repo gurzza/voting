@@ -47,30 +47,35 @@ def decrypt_data(encoded_encrypted_msg, priv_key):
     return decoded_decrypted_msg.decode('utf-8')
 
 
-def sign_data(data: str, private_key):
+def sign_data(data, private_key):
     """
-    :param data: to be signed
+    :param data: to be signed (str or bytes)
     :param private_key: private key in PEM format
     :return: digital signature (bytes)
     """
     rsaKey_priv = RSA.importKey(private_key)
     signer = PKCS1_v1_5.new(rsaKey_priv)
     digest = SHA256.new()
-    # It's being assumed the data is base64 encoded, so it's decoded before updating the digest
-    digest.update(base64.b64encode(data.encode("utf-8")))
+    if isinstance(data, bytes):
+        digest.update(base64.b64encode(data))
+    else:
+        digest.update(base64.b64encode(data.encode("utf-8")))
     sign = signer.sign(digest)
     return base64.b64encode(sign)
 
 
-def verify_sign(data_to_ver: str, signature: bytes, public_key):
+def verify_sign(data_to_ver, signature: bytes, public_key):
     """
-    :param data_to_ver: verifiable data
+    :param data_to_ver: verifiable data (str or bytes)
     :param signature: signed data (base64)
     :param public_key: key in PEM format
     :return: return 'True' if signature is valid, else 'False'
     """
     digest = SHA256.new()
-    digest.update(base64.b64encode(data_to_ver.encode('utf-8')))
+    if isinstance(data_to_ver, bytes):
+        digest.update(base64.b64encode(data_to_ver))
+    else:
+        digest.update(base64.b64encode(data_to_ver.encode('utf-8')))
     rsaKey_pub = RSA.importKey(public_key)
     verifier = PKCS1_v1_5.new(rsaKey_pub)
 
