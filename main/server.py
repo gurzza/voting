@@ -83,7 +83,24 @@ def parse_bulletin(bulletin_num, cand_names):
     return bulletin_list
 
 
-def threaded_client(c_conn, db_conn, db_cur, priv_key, cand_list):
+def add_vote_to_db(db_conn, db_cur, bulletin_num_enc, server_priv_key):
+    """
+    Sign encrypted bulletin and pass it to DB
+    :param db_conn:
+    :param db_cur:
+    :param bulletin_num_enc: encrypted bulletin
+    :param server_priv_key: server private key (to sign bulletin before pass it to DB)
+    :return: None
+    """
+    bulletin_num_enc_s = sign_data(bulletin_num_enc, server_priv_key).decode('utf-8')
+    db_cur.execute(" INSERT INTO enc_votes (vote, signature) VALUES (%s, %s)", (bulletin_num_enc, bulletin_num_enc_s))
+    print(bulletin_num_enc_s)
+    print(bulletin_num_enc)
+    print('Log: Added new record to DB')
+    db_conn.commit()
+
+
+def threaded_client(c_conn, db_conn, db_cur, priv_key, cand_list_json_str, cand_s):
     client_cert = der_cert_to_pem(c_conn.getpeercert(binary_form=True))
     is_eligible = check_is_eligible(client_cert, db_conn, db_cur)
 
@@ -100,11 +117,8 @@ def threaded_client(c_conn, db_conn, db_cur, priv_key, cand_list):
     else:
         c_conn.send('True'.encode())
         # send candidates list and signature
-        # TODO: add read from file (?)
-        cand_list_json_str = json.dumps(cand_list)
         c_conn.send(cand_list_json_str.encode('utf-8'))
-        cand_list_s = sign_data(cand_list_json_str, priv_key)
-        c_conn.send(cand_list_s)
+        c_conn.send(cand_s)
 
         # get bulletin from voter and check signature
         bulletin_num_enc = c_conn.recv(2048).decode('utf-8')
@@ -113,13 +127,7 @@ def threaded_client(c_conn, db_conn, db_cur, priv_key, cand_list):
             print('FAKE SIGNATURE!')
             return
         else:
-            #print('EVERYTHING IS OK')
-            # FIXME: change server_priv_key to departure that will count votes
-            # remove randomness
-            bulletin_num = decrypt_data(bulletin_num_enc, priv_key)[:-3]
-            #
-            bulletin_list = parse_bulletin(bulletin_num, list(cand_list.values()))
-            print(bulletin_list)
+            add_vote_to_db(db_conn, db_cur, bulletin_num_enc, priv_key)
 
 
 def close_connection_to_db(conn, cur):
@@ -133,37 +141,47 @@ if __name__ == "__main__":
     #              'Cand2': 'Blue',
     #              'Cand3': 'Yellow'}
 
-    with open("../bulletin/candidates.txt", 'r') as f:
-        # ast.literal_eval: str -> dict
-        cand_list = ast.literal_eval(f.read())
-    cand_list_json_str = json.dumps(cand_list)
+    try:
+        print('Log: Opening file with candidates')
+        with open("../bulletin/candidates", 'r') as f:
+            # ast.literal_eval: str -> dict
+            print('Log: File with candidates was opened successfully')
+            cand_list = ast.literal_eval(f.read())
+        cand_list_json_str = json.dumps(cand_list)
 
-    with open("../bulletin/candidates.txt.signature", 'rb') as f:
-        cand_list_signature = f.read()
+        print('Log: Opening file with signed candidates list')
+        with open("../bulletin/candidates_signed", 'rb') as f:
+            print('Log: File with signed candidates was opened successfully')
+            cand_list_signature = f.read()
 
-    with open("../ca_cert/bulletin.cer", 'r') as f:
-        bulletin_public_key = f.read()
+        print('Log: Opening file with public key for bulletin authority')
+        with open("../ca_cert/bulletin.cer", 'r') as f:
+            print('Log: Bulletin authority\'s certificate was opened successfully')
+            bulletin_public_key = f.read()
 
-    if not verify_sign(cand_list_json_str, cand_list_signature, bulletin_public_key):
-        print('BULLETIN WAS CORRUPTED! WE CAN\'T START VOTING!')
+        if not verify_sign(cand_list_json_str, cand_list_signature, bulletin_public_key):
+            print('BULLETIN WAS CORRUPTED! WE CAN\'T START VOTING!')
 
-    else:  # if with signature everything okay
-        server_sock = server_net_prep()
+        else:  # if with signature everything okay
+            server_sock = server_net_prep()
 
-        db_conn, db_cur = connect_to_db()
+            db_conn, db_cur = connect_to_db()
 
-        with open(SERVER_KEY_PATH, 'r') as f:
-            priv_key = f.read()
+            with open(SERVER_KEY_PATH, 'r') as f:
+                priv_key = f.read()
 
-        num_conn = 0
-        # TODO: add timer till the end of voting
-        while num_conn < 3:
-            c_conn, client_address = server_sock.accept()
-            client_handler = threading.Thread(
-                target=threaded_client,
-                args=(c_conn, db_conn, db_cur, priv_key, cand_list)
-            )
-            client_handler.start()
-            num_conn += 1
+            num_conn = 0
+            # TODO: add timer till the end of voting
+            while num_conn < 3:
+                c_conn, client_address = server_sock.accept()
+                client_handler = threading.Thread(
+                    target=threaded_client,
+                    args=(c_conn, db_conn, db_cur, priv_key, cand_list_json_str, cand_list_signature)
+                )
+                client_handler.start()
+                num_conn += 1
 
-        close_connection_to_db(db_conn, db_cur)
+            close_connection_to_db(db_conn, db_cur)
+
+    except FileNotFoundError:
+        print('FILE NOT FOUND! We can\'t start voting...')

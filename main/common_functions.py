@@ -7,6 +7,8 @@ from Crypto.Signature import PKCS1_v1_5
 from Crypto.Hash import SHA256
 import base64
 
+from cryptography.hazmat.primitives.serialization import load_pem_private_key
+
 
 def get_commonName(cert: dict):
     """
@@ -31,14 +33,25 @@ def encrypt_data(a_message, pub_key):
     return encoded_encrypted_msg
 
 
-def decrypt_data(encoded_encrypted_msg, priv_key):
+def decrypt_data(encoded_encrypted_msg, priv_key, with_password=False):
     """
     Public-key decryption
     :param encoded_encrypted_msg: encrypted data (base64)
     :param public_key: (PEM format)
+    :param with_password: with or without password (bool)
     :return: decrypted data
     """
-    rsaKey_priv = RSA.importKey(priv_key)
+    if with_password:
+        is_corr_password = False
+        while not is_corr_password:
+            password = input('Enter your password to the private key: ')
+            try:
+                rsaKey_priv = RSA.importKey(priv_key, passphrase=password)
+                is_corr_password = True
+            except ValueError:
+                print('WRONG PASSWORD! Try one more time...')
+    else:
+        rsaKey_priv = RSA.importKey(priv_key, passphrase=None)
     encryptor = PKCS1_OAEP.new(rsaKey_priv)
     decoded_encrypted_msg = base64.b64decode(encoded_encrypted_msg)
     #print(decoded_encrypted_msg)
@@ -47,13 +60,23 @@ def decrypt_data(encoded_encrypted_msg, priv_key):
     return decoded_decrypted_msg.decode('utf-8')
 
 
-def sign_data(data, private_key):
+def sign_data(data, private_key, with_password=False):
     """
     :param data: to be signed (str or bytes)
     :param private_key: private key in PEM format
     :return: digital signature (bytes)
     """
-    rsaKey_priv = RSA.importKey(private_key)
+    if with_password:
+        is_corr_password = False
+        while not is_corr_password:
+            password = input('Enter your password to the private key: ')
+            try:
+                rsaKey_priv = RSA.importKey(private_key, passphrase=password)
+                is_corr_password = True
+            except ValueError:
+                print('WRONG PASSWORD! Try one more time...')
+    else:
+        rsaKey_priv = RSA.importKey(private_key, passphrase=None)
     signer = PKCS1_v1_5.new(rsaKey_priv)
     digest = SHA256.new()
     if isinstance(data, bytes):
@@ -80,6 +103,13 @@ def verify_sign(data_to_ver, signature: bytes, public_key):
     verifier = PKCS1_v1_5.new(rsaKey_pub)
 
     return verifier.verify(digest, base64.b64decode(signature))
+
+
+def der_cert_to_pem(cert_der):
+    #cert_der = s_conn.getpeercert(binary_form=True)
+    cert = x509.load_der_x509_certificate(cert_der, default_backend())
+    pem_certificate = cert.public_bytes(encoding=serialization.Encoding.PEM)
+    return pem_certificate.decode('utf-8')
 
 
 def der_cert_to_pem(cert_der):

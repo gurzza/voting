@@ -4,6 +4,7 @@ import random
 import socket
 import ssl
 
+from _socket import SHUT_RDWR
 from cryptography.hazmat.backends import default_backend
 
 from common_functions import *
@@ -86,7 +87,7 @@ def make_choice(empty_bulletin):
 
 def bulletin_to_numbers(bulletin: list, cand_ordered: list):
     """
-    format: pos in original list +1, 00; pos in original list +1, 00; ...
+    format: pos in original list +1, 00; pos in original list +1, 00; ...; rand[100; 999]
     :param bulletin: candidates ordered by VOTER
     :param cand_ordered: original list of candidates
     """
@@ -104,7 +105,7 @@ def bulletin_to_numbers(bulletin: list, cand_ordered: list):
     return num_bulletin + str(random.randrange(100, 999))
 
 
-def communicate_with_server(s_conn, server_cert_pem, user_CN, priv_key):
+def communicate_with_server(s_conn, server_cert_pem, user_CN, voter_priv_key):
     # server answer: has the user the right to take part in voting
     is_elig = s_conn.recv(1024).decode('utf-8')
 
@@ -124,7 +125,19 @@ def communicate_with_server(s_conn, server_cert_pem, user_CN, priv_key):
         # get candidates list from server and check signature (currently: server key)
         cand_list_json_str = s_conn.recv(1024).decode('utf-8')
         cand_list_s = s_conn.recv(1024)
-        if verify_sign(cand_list_json_str, cand_list_s, server_cert_pem):
+
+        print('Log: Opening file with public key for bulletin authority')
+        try:
+            with open('../ca_cert/bulletin.cer', 'r') as f:
+                bulletin_pub_key = f.read()
+        #FIXME: does't close socket correctly (other end prints 'FAKE SIGNATURE')
+        except FileNotFoundError:
+            s_conn.shutdown(1)
+            s_conn.close()
+            print('Can\'t find file...')
+            return
+
+        if verify_sign(cand_list_json_str, cand_list_s, bulletin_pub_key):
             cand_list = json.loads(cand_list_json_str)
             # print('List of all candidates:')
             # for cand_num in cand_list.keys():
@@ -132,9 +145,12 @@ def communicate_with_server(s_conn, server_cert_pem, user_CN, priv_key):
             bulletin = make_choice(cand_list)
 
             # convert bulletin to numerical form, then encrypt, sign and send
+            with open('../ca_cert/counter.cer', 'r') as f:
+                counter_pub_key = f.read()
+
             bulletin_num = bulletin_to_numbers(bulletin, list(cand_list.values()))
-            bulletin_num_enc = encrypt_data(bulletin_num, server_cert_pem)
-            bulletin_num_enc_s = sign_data(bulletin_num_enc, priv_key)
+            bulletin_num_enc = encrypt_data(bulletin_num, counter_pub_key)
+            bulletin_num_enc_s = sign_data(bulletin_num_enc, voter_priv_key)
             s_conn.send(bulletin_num_enc)
             s_conn.send(bulletin_num_enc_s)
 
