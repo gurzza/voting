@@ -14,19 +14,7 @@ MAX_CONNECTIONS = 10
 SERVER_CERT_PATH = '../ca_cert/server.cer'
 SERVER_KEY_PATH = '../ca_cert/server.key'
 CA_CERT_PATH = '../ca_cert/ca.cer'
-
-
-def connect_to_db():
-    """
-    Connects to DB (localhost)
-    :return: connection, cursor
-    """
-    conn = psycopg2.connect(host='localhost', dbname='postgres',
-                            user='postgres', password='12345678',
-                            port=5432)
-
-    cur = conn.cursor()
-    return conn, cur
+VOTING_TIME_SEC = 60
 
 
 def server_net_prep():
@@ -56,31 +44,13 @@ def check_is_eligible(client_cert, db_conn, db_cur):
     # cert = {subject, issuer, version, serialNumber, notBefore, notAfter}
     #         subject = {'countryName', 'stateOrProvinceName', 'localityName', 'organizationName', 'commonName'}
     user_name = get_common_name_from_pem(client_cert)  #['subject'][-1][-1][-1]
-
+    serialn = get_serialn_from_pem(client_cert)
     db_cur.execute('''
-        SELECT CASE WHEN EXISTS (SELECT 1 FROM eligible_voters WHERE name = '{}') THEN true ELSE false END;
-    '''.format(user_name))
+        SELECT CASE WHEN EXISTS (SELECT 1 FROM eligible_voters WHERE name = '{}' AND serialn = '{}') THEN true ELSE false END;
+    '''.format(user_name, serialn))
 
     is_present = db_cur.fetchone()[0]
     return is_present
-
-
-def parse_bulletin(bulletin_num, cand_names):
-    """
-    input: pos in original list +1, 00; pos in original list +1, 00; ...
-    """
-    i = 0
-    curr_pos = 0
-    bulletin_list = []
-    while curr_pos < len(bulletin_num):
-        # FIXME: bad idea if amount of candidates >= 10
-        pos_b_length = bulletin_num.find('00',
-                                         curr_pos) - curr_pos  # pos_in_bulletin_length: the length of the number that represents candidate position in bulletin (ex: for 10 length 2)
-        cand_int = int(bulletin_num[curr_pos: curr_pos + pos_b_length])
-        bulletin_list.append(cand_names[cand_int - 1])
-        curr_pos += pos_b_length + 2  # +2 from len('00')
-
-    return bulletin_list
 
 
 def add_vote_to_db(db_conn, db_cur, bulletin_num_enc, server_priv_key):
@@ -94,10 +64,21 @@ def add_vote_to_db(db_conn, db_cur, bulletin_num_enc, server_priv_key):
     """
     bulletin_num_enc_s = sign_data(bulletin_num_enc, server_priv_key).decode('utf-8')
     db_cur.execute(" INSERT INTO enc_votes (vote, signature) VALUES (%s, %s)", (bulletin_num_enc, bulletin_num_enc_s))
-    print(bulletin_num_enc_s)
-    print(bulletin_num_enc)
+    #(bulletin_num_enc_s)
+    #print(bulletin_num_enc)
     print('Log: Added new record to DB')
     db_conn.commit()
+
+
+def remove_voter_from_db(db_conn, db_cur, client_cert):
+    """
+    Remove voter from DB to prohibit voting more than one time
+    """
+    serialn = get_serialn_from_pem(client_cert)
+    voter_name = get_common_name_from_pem(client_cert)
+    db_cur.execute("DELETE FROM eligible_voters WHERE name = (%s) AND serialn = (%s)", (voter_name, serialn))
+    db_conn.commit()
+    print('Log: The user has voted successfully')
 
 
 def threaded_client(c_conn, db_conn, db_cur, priv_key, cand_list_json_str, cand_s):
@@ -128,14 +109,11 @@ def threaded_client(c_conn, db_conn, db_cur, priv_key, cand_list_json_str, cand_
             return
         else:
             add_vote_to_db(db_conn, db_cur, bulletin_num_enc, priv_key)
+            remove_voter_from_db(db_conn, db_cur, client_cert)
 
 
-def close_connection_to_db(conn, cur):
-    cur.close()
-    conn.close()
-
-
-if __name__ == "__main__":
+#if __name__ == "__main__":
+def server_job():
     # FIXME: read from file or sign file with candidates and check signature?
     # cand_list = {'Cand1': 'Green',
     #              'Cand2': 'Blue',
@@ -172,15 +150,18 @@ if __name__ == "__main__":
 
             num_conn = 0
             # TODO: add timer till the end of voting
-            while num_conn < 3:
-                c_conn, client_address = server_sock.accept()
-                client_handler = threading.Thread(
-                    target=threaded_client,
-                    args=(c_conn, db_conn, db_cur, priv_key, cand_list_json_str, cand_list_signature)
-                )
-                client_handler.start()
-                num_conn += 1
-
+            server_sock.settimeout(VOTING_TIME_SEC)  # number in seconds
+            while True:
+                try:
+                    c_conn, client_address = server_sock.accept()
+                    client_handler = threading.Thread(
+                        target=threaded_client,
+                        args=(c_conn, db_conn, db_cur, priv_key, cand_list_json_str, cand_list_signature)
+                    )
+                    client_handler.start()
+                except socket.timeout:
+                    print('Time is over!')
+                    break
             close_connection_to_db(db_conn, db_cur)
 
     except FileNotFoundError:

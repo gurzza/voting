@@ -38,6 +38,26 @@ def get_client_cert_key():
     return path_to_cert, path_to_key
 
 
+def get_password(enc_priv_key_file):
+    """
+    Find out real password to encrypted private key
+    :param enc_priv_key: path to encrypted private key
+    :return: password
+    """
+    with open(enc_priv_key_file, 'r') as f:
+        enc_priv_key = f.read()
+    is_corr_password = False
+    password = ''
+    while not is_corr_password:
+        password = input('Enter your password to the private key: ')
+        try:
+            RSA.importKey(enc_priv_key, passphrase=password)
+            is_corr_password = True
+        except ValueError:
+            print('WRONG PASSWORD! Try one more time...')
+    return password
+
+
 def connect_to_server(client_cert_path: str, client_key_path: str, ca_cert_path='../ca_cert/ca.cer'):
     """
     Connects to server
@@ -49,9 +69,15 @@ def connect_to_server(client_cert_path: str, client_key_path: str, ca_cert_path=
     PORT = SERVER_PORT
     HOST = SERVER_HOST
 
+    password = get_password(client_key_path)
+    # Load the certificate and private key into the SSL context
+    context = ssl.create_default_context(ssl.Purpose.CLIENT_AUTH)
+    context.load_cert_chain(certfile=client_cert_path, keyfile=client_key_path, password=password)
+    context.verify_mode = ssl.CERT_REQUIRED
+    context.load_verify_locations(cafile=ca_cert_path)
+
     conn = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    conn = ssl.wrap_socket(conn, keyfile=client_key_path, certfile=client_cert_path,
-                           cert_reqs=ssl.CERT_REQUIRED, ca_certs=ca_cert_path, ssl_version=ssl.PROTOCOL_TLSv1_2)
+    conn = context.wrap_socket(conn)
     conn.connect((HOST, PORT))
     return conn
 
@@ -150,7 +176,7 @@ def communicate_with_server(s_conn, server_cert_pem, user_CN, voter_priv_key):
 
             bulletin_num = bulletin_to_numbers(bulletin, list(cand_list.values()))
             bulletin_num_enc = encrypt_data(bulletin_num, counter_pub_key)
-            bulletin_num_enc_s = sign_data(bulletin_num_enc, voter_priv_key)
+            bulletin_num_enc_s = sign_data(bulletin_num_enc, voter_priv_key, with_password=True)
             s_conn.send(bulletin_num_enc)
             s_conn.send(bulletin_num_enc_s)
 

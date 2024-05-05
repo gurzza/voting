@@ -1,3 +1,4 @@
+import psycopg2
 from cryptography import x509
 from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives import serialization
@@ -58,6 +59,35 @@ def decrypt_data(encoded_encrypted_msg, priv_key, with_password=False):
     decoded_decrypted_msg = encryptor.decrypt(decoded_encrypted_msg)
     #print(decoded_decrypted_msg)
     return decoded_decrypted_msg.decode('utf-8')
+
+
+def decrypt_data_list(encoded_encrypted_msg_list, priv_key):
+    """
+    Public-key decryption
+    :param encoded_encrypted_msg_list: encrypted list of data (base64)
+    :param private_key: (PEM format)
+    :return: decrypted data
+    """
+
+    is_corr_password = False
+    while not is_corr_password:
+        password = input('Enter your password to the private key: ')
+        try:
+            rsaKey_priv = RSA.importKey(priv_key, passphrase=password)
+            is_corr_password = True
+        except ValueError:
+            print('WRONG PASSWORD! Try one more time...')
+
+    encryptor = PKCS1_OAEP.new(rsaKey_priv)
+    dec_votes = []
+    for enc_vote in encoded_encrypted_msg_list:
+        decoded_encrypted_msg = base64.b64decode(enc_vote[0].encode('utf-8'))
+        #print(decoded_encrypted_msg)
+        decoded_decrypted_msg = encryptor.decrypt(decoded_encrypted_msg)
+        #print(decoded_decrypted_msg)
+        dec_votes.append(decoded_decrypted_msg.decode('utf-8')[:-3])  # remove randomness
+
+    return dec_votes
 
 
 def sign_data(data, private_key, with_password=False):
@@ -140,6 +170,29 @@ def get_common_name_from_pem(pem_certificate):
     cert = x509.load_pem_x509_certificate(pem_certificate.encode('utf-8'), default_backend())
     common_name = cert.subject.get_attributes_for_oid(x509.NameOID.COMMON_NAME)[0].value
     return common_name
+
+
+def get_serialn_from_pem(pem_cert) -> str:
+    cert = x509.load_pem_x509_certificate(pem_cert.encode('utf-8'), default_backend())
+    return hex(cert.serial_number)[2:]
+
+
+def connect_to_db():
+    """
+    Connects to DB (localhost)
+    :return: connection, cursor
+    """
+    conn = psycopg2.connect(host='localhost', dbname='postgres',
+                            user='postgres', password='12345678',
+                            port=5432)
+
+    cur = conn.cursor()
+    return conn, cur
+
+
+def close_connection_to_db(conn, cur):
+    cur.close()
+    conn.close()
 
 
 #def produce_hmac(message: str, key)
