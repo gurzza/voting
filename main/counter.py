@@ -22,20 +22,26 @@ def parse_bulletin(bulletin_num_list, cand_names):
     input (one of many votes): pos in original list +1, 00; pos in original list +1, 00; ...
     """
 
-    bulettins = []
+    bulletins = []
     for bulletin_num in bulletin_num_list:
         bulletin_list = []
         curr_pos = 0
-        while curr_pos < len(bulletin_num):
-            # FIXME: bad idea if amount of candidates >= 10
-            pos_b_length = bulletin_num.find('00',
-                                             curr_pos) - curr_pos  # pos_in_bulletin_length: the length of the number that represents candidate position in bulletin (ex: for 10 length 2)
-            cand_int = int(bulletin_num[curr_pos: curr_pos + pos_b_length])
-            bulletin_list.append(cand_names[cand_int - 1])
-            curr_pos += pos_b_length + 2  # +2 from len('00')
+        try:
+            while curr_pos < len(bulletin_num):
+                # FIXME: bad idea if amount of candidates >= 10
+                # pos_in_bulletin_length: the length of the number that represents candidate position in bulletin
+                # ex: for 10 length 2
+                pos_b_length = bulletin_num.find('00', curr_pos) - curr_pos
+                if pos_b_length == -1:  # if '00' wasn't found
+                    raise Exception('Log: INCORRECT BULLETIN FORMAT! Skip this bulletin...')
+                cand_int = int(bulletin_num[curr_pos: curr_pos + pos_b_length])
+                bulletin_list.append(cand_names[cand_int - 1])
+                curr_pos += pos_b_length + 2  # +2 from len('00')
+            bulletins.append(bulletin_list)
+        except Exception as e:
+            print(e.args[0])
 
-        bulettins.append(bulletin_list)
-    return bulettins
+    return bulletins
 
 
 def create_candidates(cand_list):
@@ -61,12 +67,26 @@ def make_bulletin_lib(bulletin: list, cand_lib: list):
     :param cand_lib: list of candidates from library
     :return:
     """
+    # bulletin_lib = []
+    # for el in bulletin:
+    #     for cand in cand_lib:
+    #         if el == cand.name:
+    #             bulletin_lib.append(cand)
+    #             break
+    # return bulletin_lib
     bulletin_lib = []
+    cands_name = [cand.name for cand in cand_lib]
     for el in bulletin:
-        for cand in cand_lib:
-            if el == cand.name:
-                bulletin_lib.append(cand)
-                break
+        if el in cands_name:
+            for cand in cand_lib:
+                if el == cand.name:
+                    bulletin_lib.append(cand)
+                    cands_name.remove(el)
+                    break
+        else:
+            print('Log: INCORRECT VOTE! DATA DUPLICATION OR UNEXPECTED CANDIDATE!')
+            return
+    # if everything OK
     return bulletin_lib
 
 
@@ -86,13 +106,17 @@ def counter_job():
 
     # bulletins - clear votes
     bulletins = parse_bulletin(bulletins_num, list(cand_list.values()))
+    if not bulletins:  # in case when all bulletins are incorrect
+        print('Log: ALL VOTES WERE INCORRECT OR CORRUPTED!')
+        return
 
     # create 'Candidates'
     cand_lib = create_candidates(cand_list)
     bulletins_lib = []
     for bulletin in bulletins:
         one_bulletin_lib = make_bulletin_lib(bulletin, cand_lib)
-        bulletins_lib.append(Ballot(ranked_candidates=one_bulletin_lib))
+        if one_bulletin_lib:
+            bulletins_lib.append(Ballot(ranked_candidates=one_bulletin_lib))
 
     # election_result = instant_runoff_voting(cand_lib, bulletins_lib)
     # winners = election_result.get_winners()

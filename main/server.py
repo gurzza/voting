@@ -87,7 +87,7 @@ def threaded_client(c_conn, db_conn, db_cur, priv_key, cand_list_json_str, cand_
 
     if not is_eligible:
         c_conn.send('False'.encode())
-        message = '{} has not right to take part in this voting!'.format(get_common_name_from_pem(client_cert))
+        message = '{} has not right to take part in this voting or has already taken part in the voting!'.format(get_common_name_from_pem(client_cert))
         c_conn.send(message.encode('utf-8'))
         # HINT: sign this message to avoid MITM (ex: someone intercept your connection and without signature
         #  can break up connection)
