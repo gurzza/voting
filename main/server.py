@@ -1,4 +1,5 @@
 import ast
+import base64
 import json
 import socket
 import ssl
@@ -14,7 +15,8 @@ MAX_CONNECTIONS = 10
 SERVER_CERT_PATH = '../ca_cert/server.cer'
 SERVER_KEY_PATH = '../ca_cert/server.key'
 CA_CERT_PATH = '../ca_cert/ca.cer'
-VOTING_TIME_SEC = 60
+VOTING_TIME_SEC = 180
+LAST_VOTE_NUMBER = 0
 
 
 def server_net_prep():
@@ -62,11 +64,19 @@ def add_vote_to_db(db_conn, db_cur, bulletin_num_enc, server_priv_key):
     :param server_priv_key: server private key (to sign bulletin before pass it to DB)
     :return: None
     """
-    bulletin_num_enc_s = sign_data(bulletin_num_enc, server_priv_key).decode('utf-8')
+    # it will add LAST_VOTE_NUMBER to the end of the signature, so to know what size separate from signute in
+    # verification step, I made it in one format (the same size)
+    global LAST_VOTE_NUMBER
+    LAST_VOTE_NUMBER += 1
+    len_last_vote = len(str(LAST_VOTE_NUMBER))
+    # 8 bytes
+    str_last_vote = base64.b64encode(('0'*(4-len_last_vote) + str(LAST_VOTE_NUMBER)).encode('utf-8')).decode('utf-8')
+
+    bulletin_num_enc_s = sign_data(bulletin_num_enc + str_last_vote, server_priv_key).decode('utf-8')
     db_cur.execute(" INSERT INTO enc_votes (vote, signature) VALUES (%s, %s)", (bulletin_num_enc, bulletin_num_enc_s))
     #(bulletin_num_enc_s)
     #print(bulletin_num_enc)
-    print('Log: Added new record to DB')
+    print('Log: Added new record to DB ({})'.format(LAST_VOTE_NUMBER))
     db_conn.commit()
 
 
@@ -112,13 +122,29 @@ def threaded_client(c_conn, db_conn, db_cur, priv_key, cand_list_json_str, cand_
             remove_voter_from_db(db_conn, db_cur, client_cert)
 
 
-#if __name__ == "__main__":
-def server_job():
-    # FIXME: read from file or sign file with candidates and check signature?
-    # cand_list = {'Cand1': 'Green',
-    #              'Cand2': 'Blue',
-    #              'Cand3': 'Yellow'}
+def database_prep(db_conn, db_cur):
+    """
+    Remove trash from DB and prepare tables
+    """
 
+    db_cur.execute(''' DELETE FROM eligible_voters ''')
+    db_cur.execute(''' SELECT setval(pg_get_serial_sequence('eligible_voters', 'id'), 1, false) ''')
+    db_cur.execute('''
+                INSERT INTO eligible_voters (name, serialn)
+                    VALUES ('GLAEV GEORGIY ANT.', '0d'),
+                    ('ELAEV ALEX VIC.', '0c'),
+                    ('LOMOV VASILIY AN.', '0b'),
+                    ('PETROV PETR IV.', '011'),
+                    ('SIDOROV IVAN BOR.', '010'),
+                    ('SMELTSOV IVAN AL.', '0f'),
+                    ('YAKOV YAN VIC.', '0e');
+    ''')
+    db_cur.execute(''' DELETE FROM enc_votes ''')
+    db_cur.execute(''' SELECT setval(pg_get_serial_sequence('enc_votes', 'vote_id'), 1, false) ''')
+    db_conn.commit()
+
+
+def server_job():
     try:
         print('Log: Opening file with candidates')
         with open("../bulletin/candidates", 'r') as f:
@@ -144,6 +170,7 @@ def server_job():
             server_sock = server_net_prep()
 
             db_conn, db_cur = connect_to_db()
+            database_prep(db_conn, db_cur)
 
             with open(SERVER_KEY_PATH, 'r') as f:
                 priv_key = f.read()
@@ -151,6 +178,7 @@ def server_job():
             num_conn = 0
             # TODO: add timer till the end of voting
             server_sock.settimeout(VOTING_TIME_SEC)  # number in seconds
+            print('Log: Waiting for voters')
             while True:
                 try:
                     c_conn, client_address = server_sock.accept()
@@ -166,3 +194,8 @@ def server_job():
 
     except FileNotFoundError:
         print('FILE NOT FOUND! We can\'t start voting...')
+
+
+# if __name__ == '__main__':
+#     db_conn, db_cur = connect_to_db()
+#     database_prep(db_conn, db_cur)

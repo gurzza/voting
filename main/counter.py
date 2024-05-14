@@ -7,14 +7,21 @@ from pyrankvote import *
 from common_functions import *
 
 
-def fetch_enc_votes(db_conn, db_cur):
+def fetch_enc_votes_and_signature(db_conn, db_cur):
     db_cur.execute(
         '''
             SELECT vote FROM enc_votes
         '''
     )
     enc_votes = db_cur.fetchall()
-    return enc_votes
+
+    db_cur.execute(
+        '''
+            SELECT signature FROM enc_votes
+        '''
+    )
+    signatures = db_cur.fetchall()
+    return enc_votes, signatures
 
 
 def parse_bulletin(bulletin_num_list, cand_names):
@@ -93,11 +100,18 @@ def make_bulletin_lib(bulletin: list, cand_lib: list):
 def counter_job():
     with open('../ca_cert/counter.key', 'r') as f:
         priv_key_counter = f.read()
+    with open('../ca_cert/server.cer', 'r') as f:
+        server_pub_key = f.read()
 
     # fetch encrypted votes from DB
     db_conn, db_cur = connect_to_db()
-    enc_votes = fetch_enc_votes(db_conn, db_cur)
+    enc_votes, signatures = fetch_enc_votes_and_signature(db_conn, db_cur)
     close_connection_to_db(db_conn, db_cur)
+    # verify signatures
+    ver_enc_votes = verify_sign_list(enc_votes, signatures, server_pub_key)
+    if ver_enc_votes is None:
+        print('Log: All votes weer substituted')
+        return
     # decrypt votes
     bulletins_num = decrypt_data_list(enc_votes, priv_key_counter)
     with open("../bulletin/candidates", 'r') as f:

@@ -135,6 +135,34 @@ def verify_sign(data_to_ver, signature: bytes, public_key):
     return verifier.verify(digest, base64.b64decode(signature))
 
 
+def verify_sign_list(enc_votes, signatures, public_key):
+    verified_enc_votes = []
+    if len(enc_votes) != len(signatures):
+        print('Log: Number of signatures is not equal to number of votes! Can\'t counting...')
+        return verified_enc_votes
+
+    len_enc_votes = len(enc_votes)
+    for i in range(len_enc_votes):
+        len_last_vote = len(str(i+1))
+        # 8 bytes
+        str_last_vote = base64.b64encode(('0' * (4 - len_last_vote) + str(i+1)).encode('utf-8')).decode('utf-8')
+        signature = signatures[i]
+        data_to_ver = enc_votes[i][0] + str_last_vote
+        digest = SHA256.new()
+        if isinstance(data_to_ver, bytes):
+            digest.update(base64.b64encode(data_to_ver))
+        else:
+            digest.update(base64.b64encode(data_to_ver.encode('utf-8')))
+        rsaKey_pub = RSA.importKey(public_key)
+        verifier = PKCS1_v1_5.new(rsaKey_pub)
+
+        if verifier.verify(digest, base64.b64decode(signature[0])):
+            verified_enc_votes.append(enc_votes[i])
+        else:
+            print('Log: Vote {} was substituted'.format(i+1))
+
+    return verified_enc_votes
+
 def der_cert_to_pem(cert_der):
     #cert_der = s_conn.getpeercert(binary_form=True)
     cert = x509.load_der_x509_certificate(cert_der, default_backend())
@@ -174,7 +202,7 @@ def get_common_name_from_pem(pem_certificate):
 
 def get_serialn_from_pem(pem_cert) -> str:
     cert = x509.load_pem_x509_certificate(pem_cert.encode('utf-8'), default_backend())
-    return hex(cert.serial_number)[2:]
+    return '0' + hex(cert.serial_number)[2:]
 
 
 def connect_to_db():

@@ -175,8 +175,11 @@ def communicate_with_server(s_conn, server_cert_pem, user_CN, voter_priv_key):
                 counter_pub_key = f.read()
 
             bulletin_num = bulletin_to_numbers(bulletin, list(cand_list.values()))
+            # encrypt bulletin
             bulletin_num_enc = encrypt_data(bulletin_num, counter_pub_key)
+            # sign encrypted bulletin
             bulletin_num_enc_s = sign_data(bulletin_num_enc, voter_priv_key, with_password=True)
+
             s_conn.send(bulletin_num_enc)
             s_conn.send(bulletin_num_enc_s)
 
