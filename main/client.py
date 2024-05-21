@@ -113,7 +113,7 @@ def make_choice(empty_bulletin):
 
 def bulletin_to_numbers(bulletin: list, cand_ordered: list):
     """
-    format: pos in original list +1, 00; pos in original list +1, 00; ...; rand[100; 999]
+    format: pos in original list +1, 00; pos in original list +1, 00
     :param bulletin: candidates ordered by VOTER
     :param cand_ordered: original list of candidates
     """
@@ -127,8 +127,7 @@ def bulletin_to_numbers(bulletin: list, cand_ordered: list):
         # FIXME: bad idea for if amount of candidates >= 10
         num_bulletin += '00'
 
-    # add randomness to make each bulletin unique
-    return num_bulletin + str(random.randrange(100, 999))
+    return num_bulletin  #+ str(random.randrange(100, 999))
 
 
 def communicate_with_server(s_conn, server_cert_pem, user_CN, voter_priv_key):
@@ -156,7 +155,7 @@ def communicate_with_server(s_conn, server_cert_pem, user_CN, voter_priv_key):
         try:
             with open('../ca_cert/bulletin.cer', 'r') as f:
                 bulletin_pub_key = f.read()
-        #FIXME: does't close socket correctly (other end prints 'FAKE SIGNATURE')
+        #FIXME: doesn't close socket correctly (other end prints 'FAKE SIGNATURE')
         except FileNotFoundError:
             s_conn.shutdown(1)
             s_conn.close()
@@ -183,8 +182,11 @@ def communicate_with_server(s_conn, server_cert_pem, user_CN, voter_priv_key):
             s_conn.send(bulletin_num_enc)
             s_conn.send(bulletin_num_enc_s)
 
+            print('Your bulletin hash is:', hash_calculation(bulletin_num_enc))
+            print(s_conn.recv(1024).decode('utf-8'))
+
         else:
-            print('BLANK WAS REPLACED!!!')
+            print('BULLETIN WAS REPLACED!')
             return
 
     else:

@@ -24,12 +24,13 @@ def fetch_enc_votes_and_signature(db_conn, db_cur):
     return enc_votes, signatures
 
 
-def parse_bulletin(bulletin_num_list, cand_names):
+def parse_bulletin(bulletin_num_list, hashes, cand_names):
     """
     input (one of many votes): pos in original list +1, 00; pos in original list +1, 00; ...
     """
-
+    new_hashes = []
     bulletins = []
+    i = 0
     for bulletin_num in bulletin_num_list:
         bulletin_list = []
         curr_pos = 0
@@ -40,15 +41,18 @@ def parse_bulletin(bulletin_num_list, cand_names):
                 # ex: for 10 length 2
                 pos_b_length = bulletin_num.find('00', curr_pos) - curr_pos
                 if pos_b_length == -1:  # if '00' wasn't found
-                    raise Exception('Log: INCORRECT BULLETIN FORMAT! Skip this bulletin...')
+                    raise Exception('Log: INCORRECT BULLETIN FORMAT! Skip this bulletin... Hash is {}'.
+                                    format(hash_calculation(hashes[i])))
                 cand_int = int(bulletin_num[curr_pos: curr_pos + pos_b_length])
                 bulletin_list.append(cand_names[cand_int - 1])
                 curr_pos += pos_b_length + 2  # +2 from len('00')
             bulletins.append(bulletin_list)
+            new_hashes.append(hashes[i])
         except Exception as e:
             print(e.args[0])
+        i += 1
 
-    return bulletins
+    return bulletins, new_hashes
 
 
 def create_candidates(cand_list):
@@ -74,13 +78,6 @@ def make_bulletin_lib(bulletin: list, cand_lib: list):
     :param cand_lib: list of candidates from library
     :return:
     """
-    # bulletin_lib = []
-    # for el in bulletin:
-    #     for cand in cand_lib:
-    #         if el == cand.name:
-    #             bulletin_lib.append(cand)
-    #             break
-    # return bulletin_lib
     bulletin_lib = []
     cands_name = [cand.name for cand in cand_lib]
     for el in bulletin:
@@ -108,9 +105,9 @@ def counter_job():
     enc_votes, signatures = fetch_enc_votes_and_signature(db_conn, db_cur)
     close_connection_to_db(db_conn, db_cur)
     # verify signatures
-    ver_enc_votes = verify_sign_list(enc_votes, signatures, server_pub_key)
+    ver_enc_votes, ver_enc_votes_hash = verify_sign_list(enc_votes, signatures, server_pub_key)
     if ver_enc_votes is None:
-        print('Log: All votes weer substituted')
+        print('Log: All votes were substituted')
         return
     # decrypt votes
     bulletins_num = decrypt_data_list(enc_votes, priv_key_counter)
@@ -119,7 +116,7 @@ def counter_job():
         cand_list = ast.literal_eval(f.read())
 
     # bulletins - clear votes
-    bulletins = parse_bulletin(bulletins_num, list(cand_list.values()))
+    bulletins, checked_hashes = parse_bulletin(bulletins_num, ver_enc_votes_hash, list(cand_list.values()))
     if not bulletins:  # in case when all bulletins are incorrect
         print('Log: ALL VOTES WERE INCORRECT OR CORRUPTED!')
         return
@@ -131,10 +128,6 @@ def counter_job():
         one_bulletin_lib = make_bulletin_lib(bulletin, cand_lib)
         if one_bulletin_lib:
             bulletins_lib.append(Ballot(ranked_candidates=one_bulletin_lib))
-
-    # election_result = instant_runoff_voting(cand_lib, bulletins_lib)
-    # winners = election_result.get_winners()
-    # print(election_result)
 
     election_result = pyrankvote.single_transferable_vote(
         cand_lib, bulletins_lib, number_of_seats=2

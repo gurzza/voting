@@ -85,7 +85,7 @@ def decrypt_data_list(encoded_encrypted_msg_list, priv_key):
         #print(decoded_encrypted_msg)
         decoded_decrypted_msg = encryptor.decrypt(decoded_encrypted_msg)
         #print(decoded_decrypted_msg)
-        dec_votes.append(decoded_decrypted_msg.decode('utf-8')[:-3])  # remove randomness
+        dec_votes.append(decoded_decrypted_msg.decode('utf-8'))  #[:-3])  # remove randomness
 
     return dec_votes
 
@@ -137,15 +137,16 @@ def verify_sign(data_to_ver, signature: bytes, public_key):
 
 def verify_sign_list(enc_votes, signatures, public_key):
     verified_enc_votes = []
+    verified_enc_votes_hash = []
     if len(enc_votes) != len(signatures):
         print('Log: Number of signatures is not equal to number of votes! Can\'t counting...')
         return verified_enc_votes
 
     len_enc_votes = len(enc_votes)
     for i in range(len_enc_votes):
-        len_last_vote = len(str(i+1))
+        len_last_vote = len(str(i + 1))
         # 8 bytes
-        str_last_vote = base64.b64encode(('0' * (4 - len_last_vote) + str(i+1)).encode('utf-8')).decode('utf-8')
+        str_last_vote = base64.b64encode(('0' * (4 - len_last_vote) + str(i + 1)).encode('utf-8')).decode('utf-8')
         signature = signatures[i]
         data_to_ver = enc_votes[i][0] + str_last_vote
         digest = SHA256.new()
@@ -158,13 +159,14 @@ def verify_sign_list(enc_votes, signatures, public_key):
 
         if verifier.verify(digest, base64.b64decode(signature[0])):
             verified_enc_votes.append(enc_votes[i])
+            verified_enc_votes_hash.append(hash_calculation(enc_votes[i][0]))
         else:
-            print('Log: Vote {} was substituted'.format(i+1))
+            print('Log: Vote {} with hash {} was substituted!'.format(hash_calculation(enc_votes[i]),i + 1))
 
-    return verified_enc_votes
+    return verified_enc_votes, verified_enc_votes_hash
+
 
 def der_cert_to_pem(cert_der):
-    #cert_der = s_conn.getpeercert(binary_form=True)
     cert = x509.load_der_x509_certificate(cert_der, default_backend())
     pem_certificate = cert.public_bytes(encoding=serialization.Encoding.PEM)
     return pem_certificate.decode('utf-8')
@@ -221,6 +223,15 @@ def connect_to_db():
 def close_connection_to_db(conn, cur):
     cur.close()
     conn.close()
+
+
+def hash_calculation(text):
+    digest = SHA256.new()
+    if isinstance(text, bytes):
+        digest.update(base64.b64encode(text))
+    else:
+        digest.update(base64.b64encode(text.encode('utf-8')))
+    return digest.hexdigest()
 
 
 #def produce_hmac(message: str, key)

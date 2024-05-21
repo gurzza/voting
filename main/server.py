@@ -15,7 +15,7 @@ MAX_CONNECTIONS = 10
 SERVER_CERT_PATH = '../ca_cert/server.cer'
 SERVER_KEY_PATH = '../ca_cert/server.key'
 CA_CERT_PATH = '../ca_cert/ca.cer'
-VOTING_TIME_SEC = 180
+VOTING_TIME_SEC = 30
 LAST_VOTE_NUMBER = 0
 
 
@@ -76,7 +76,7 @@ def add_vote_to_db(db_conn, db_cur, bulletin_num_enc, server_priv_key):
     db_cur.execute(" INSERT INTO enc_votes (vote, signature) VALUES (%s, %s)", (bulletin_num_enc, bulletin_num_enc_s))
     #(bulletin_num_enc_s)
     #print(bulletin_num_enc)
-    print('Log: Added new record to DB ({})'.format(LAST_VOTE_NUMBER))
+    print('Log: Added new record to DB ({}) with hash {}'.format(LAST_VOTE_NUMBER, hash_calculation(bulletin_num_enc)))
     db_conn.commit()
 
 
@@ -116,9 +116,13 @@ def threaded_client(c_conn, db_conn, db_cur, priv_key, cand_list_json_str, cand_
         bulletin_num_enc_s = c_conn.recv(1024)
         if not verify_sign(bulletin_num_enc, bulletin_num_enc_s, client_cert):
             print('FAKE SIGNATURE!')
+            c_conn.send('FROM SERVER: Your bulletin with hash {} wasn\'t added to DB because of incorrect signature...'
+                        .format(hash_calculation(bulletin_num_enc)).encode('utf-8'))
             return
         else:
             add_vote_to_db(db_conn, db_cur, bulletin_num_enc, priv_key)
+            c_conn.send('FROM SERVER: Your bulletin with hash {} was successfully added to DB'
+                        .format(hash_calculation(bulletin_num_enc)).encode('utf-8'))
             remove_voter_from_db(db_conn, db_cur, client_cert)
 
 
@@ -175,8 +179,6 @@ def server_job():
             with open(SERVER_KEY_PATH, 'r') as f:
                 priv_key = f.read()
 
-            num_conn = 0
-            # TODO: add timer till the end of voting
             server_sock.settimeout(VOTING_TIME_SEC)  # number in seconds
             print('Log: Waiting for voters')
             while True:
