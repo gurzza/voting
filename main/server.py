@@ -15,7 +15,7 @@ MAX_CONNECTIONS = 10
 SERVER_CERT_PATH = '../ca_cert/server.cer'
 SERVER_KEY_PATH = '../ca_cert/server.key'
 CA_CERT_PATH = '../ca_cert/ca.cer'
-VOTING_TIME_SEC = 30
+VOTING_TIME_SEC = 60
 LAST_VOTE_NUMBER = 0
 
 

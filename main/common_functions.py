@@ -28,9 +28,7 @@ def encrypt_data(a_message, pub_key):
     rsaKey_pub = RSA.importKey(pub_key)
     encryptor = PKCS1_OAEP.new(rsaKey_pub)
     encrypted_msg = encryptor.encrypt(a_message.encode('utf-8'))
-    #print(encrypted_msg)
     encoded_encrypted_msg = base64.b64encode(encrypted_msg)
-    #print(encoded_encrypted_msg)
     return encoded_encrypted_msg
 
 
@@ -55,9 +53,7 @@ def decrypt_data(encoded_encrypted_msg, priv_key, with_password=False):
         rsaKey_priv = RSA.importKey(priv_key, passphrase=None)
     encryptor = PKCS1_OAEP.new(rsaKey_priv)
     decoded_encrypted_msg = base64.b64decode(encoded_encrypted_msg)
-    #print(decoded_encrypted_msg)
     decoded_decrypted_msg = encryptor.decrypt(decoded_encrypted_msg)
-    #print(decoded_decrypted_msg)
     return decoded_decrypted_msg.decode('utf-8')
 
 
@@ -161,7 +157,7 @@ def verify_sign_list(enc_votes, signatures, public_key):
             verified_enc_votes.append(enc_votes[i])
             verified_enc_votes_hash.append(hash_calculation(enc_votes[i][0]))
         else:
-            print('Log: Vote {} with hash {} was substituted!'.format(hash_calculation(enc_votes[i]),i + 1))
+            print('Log: Vote {} with hash {} was substituted!'.format(i+1, hash_calculation(enc_votes[i][0])))
 
     return verified_enc_votes, verified_enc_votes_hash
 

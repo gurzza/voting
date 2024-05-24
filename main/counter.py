@@ -110,7 +110,7 @@ def counter_job():
         print('Log: All votes were substituted')
         return
     # decrypt votes
-    bulletins_num = decrypt_data_list(enc_votes, priv_key_counter)
+    bulletins_num = decrypt_data_list(ver_enc_votes, priv_key_counter)
     with open("../bulletin/candidates", 'r') as f:
         # ast.literal_eval: str -> dict
         cand_list = ast.literal_eval(f.read())
@@ -129,8 +129,8 @@ def counter_job():
         if one_bulletin_lib:
             bulletins_lib.append(Ballot(ranked_candidates=one_bulletin_lib))
 
-    election_result = pyrankvote.single_transferable_vote(
-        cand_lib, bulletins_lib, number_of_seats=2
+    election_result = pyrankvote.instant_runoff_voting(
+        cand_lib, bulletins_lib
     )
 
     print(election_result)
