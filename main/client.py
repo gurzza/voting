@@ -148,6 +148,17 @@ def communicate_with_server(s_conn, server_cert_pem, user_CN, voter_priv_key):
 
     elif is_elig == 'True':
         # get candidates list from server and check signature (currently: server key)
+        #action = 0
+        # while action != '1' and action != '2':
+        #     action = input('Enter 1 - for the first vote, 2 - to revote: ')
+
+        action = s_conn.recv(1024).decode('utf-8')
+        #print('action', action)
+        if action == '2':
+            with open('../priv_r/{}'.format(user_CN), 'r') as f:
+                r = f.read()
+            #s_conn.send(r)
+
         cand_list_json_str = s_conn.recv(1024).decode('utf-8')
         cand_list_s = s_conn.recv(1024)
 
@@ -181,9 +192,38 @@ def communicate_with_server(s_conn, server_cert_pem, user_CN, voter_priv_key):
 
             s_conn.send(bulletin_num_enc)
             s_conn.send(bulletin_num_enc_s)
+            if action == '2':
+                r_enc = encrypt_data(r, server_cert_pem)
+                print("It\'s necessary to sign your encrypted r. So...")
+                s_r_enc = sign_data(r_enc, priv_key, with_password=True)
 
+                #print('r_enc: ', r_enc)
+                #print('s_r_enc: ', s_r_enc)
+
+                s_conn.send(r_enc)
+                s_conn.send(s_r_enc)
             print('Your bulletin hash is:', hash_calculation(bulletin_num_enc))
-            print(s_conn.recv(1024).decode('utf-8'))
+            res = s_conn.recv(1024).decode('utf-8')
+            s_conn.send('OK'.encode('utf-8'))
+            if action == '1':
+                #res = s_conn.recv(1024).decode('utf-8')
+                #print(res)
+                if 'not' in res:
+                    return
+                else:
+                    r_enc = s_conn.recv(1024).decode('utf-8')
+                    s_r_enc = s_conn.recv(1024).decode('utf-8')
+                    #print('client r_enc: ', r_enc)
+                    #print('client s_r_enc: ', s_r_enc)
+                    with open('../priv_r/{}'.format(user_CN), 'w') as f:
+                        print('It is necessary to decrypt secret parameter r. So...')
+                        if verify_sign(r_enc, s_r_enc, server_cert_pem):
+                            r = decrypt_data(r_enc, priv_key, with_password=True)
+                            f.write(r)
+                            #print(r, '\n', type(r))
+                        else:
+                            print('Digital signature of parameter r has been corrupted. '
+                                  'Try to revote in a few minutes...')
 
         else:
             print('BULLETIN WAS REPLACED!')

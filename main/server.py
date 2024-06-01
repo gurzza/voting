@@ -1,6 +1,8 @@
 import ast
 import base64
 import json
+import random
+import secrets
 import socket
 import ssl
 import threading
@@ -15,7 +17,7 @@ MAX_CONNECTIONS = 10
 SERVER_CERT_PATH = '../ca_cert/server.cer'
 SERVER_KEY_PATH = '../ca_cert/server.key'
 CA_CERT_PATH = '../ca_cert/ca.cer'
-VOTING_TIME_SEC = 60
+VOTING_TIME_SEC = 120
 LAST_VOTE_NUMBER = 0
 
 
@@ -37,6 +39,20 @@ def server_net_prep():
     return server_sock
 
 
+def check_is_voted(checker, db_conn, db_cur):
+    """
+    Checks whether the user voted or not
+    :return: Returns 'True' if user voted, else 'False'
+    """
+
+    db_cur.execute('''
+        SELECT CASE WHEN EXISTS (SELECT 1 FROM enc_votes WHERE checker = '{}') THEN true ELSE false END;
+    '''.format(checker))
+
+    is_present = db_cur.fetchone()[0]
+    return is_present
+
+
 def check_is_eligible(client_cert, db_conn, db_cur):
     """
     Checks whether the user has the right to vote
@@ -55,7 +71,11 @@ def check_is_eligible(client_cert, db_conn, db_cur):
     return is_present
 
 
-def add_vote_to_db(db_conn, db_cur, bulletin_num_enc, server_priv_key):
+# def update_vote(bulletin_num_enc, bulletin_num_enc_s):
+#     pass
+
+
+def add_vote_to_db(db_conn, db_cur, bulletin_num_enc, server_priv_key, r, user_CN, action):
     """
     Sign encrypted bulletin and pass it to DB
     :param db_conn:
@@ -66,29 +86,74 @@ def add_vote_to_db(db_conn, db_cur, bulletin_num_enc, server_priv_key):
     """
     # it will add LAST_VOTE_NUMBER to the end of the signature, so to know what size separate from signute in
     # verification step, I made it in one format (the same size)
+
     global LAST_VOTE_NUMBER
-    LAST_VOTE_NUMBER += 1
+    #LAST_VOTE_NUMBER += 1
     len_last_vote = len(str(LAST_VOTE_NUMBER))
     # 8 bytes
-    str_last_vote = base64.b64encode(('0'*(4-len_last_vote) + str(LAST_VOTE_NUMBER)).encode('utf-8')).decode('utf-8')
+    str_last_vote = base64.b64encode(('0' * (4 - len_last_vote) + str(LAST_VOTE_NUMBER)).encode('utf-8')).decode(
+        'utf-8')
 
     bulletin_num_enc_s = sign_data(bulletin_num_enc + str_last_vote, server_priv_key).decode('utf-8')
-    db_cur.execute(" INSERT INTO enc_votes (vote, signature) VALUES (%s, %s)", (bulletin_num_enc, bulletin_num_enc_s))
-    #(bulletin_num_enc_s)
-    #print(bulletin_num_enc)
-    print('Log: Added new record to DB ({}) with hash {}'.format(LAST_VOTE_NUMBER, hash_calculation(bulletin_num_enc)))
-    db_conn.commit()
+    user_CN_hash = hash_calculation(user_CN)
+    #print('r: ', hex(int(r))[2:])
+    #print('hash: ', user_CN_hash)
+    checker_s = hex(int(r))[2:] + user_CN_hash
+
+    if action == '1':
+        db_cur.execute(" INSERT INTO enc_votes (vote, signature, checker) VALUES (%s, %s, %s)",
+                       (bulletin_num_enc, bulletin_num_enc_s, checker_s))
+        db_cur.execute(" UPDATE eligible_voters "
+                       "SET voted = '{}' "
+                       "WHERE name = '{}'".format("YES", user_CN))
+        LAST_VOTE_NUMBER += 1
+        print('Log: Added new record to DB ({}) with hash {}'.format(LAST_VOTE_NUMBER,
+                                                                     hash_calculation(bulletin_num_enc)))
+        db_conn.commit()
+        return True
+    else:
+        is_voted = check_is_voted(checker_s, db_conn, db_cur)
+        if is_voted:
+            #print('b_n_e:', bulletin_num_enc)
+            #print('b_n_e_s:', bulletin_num_enc_s)
+            #print('c_s:', checker_s)
+            db_cur.execute((""" UPDATE enc_votes
+                            SET vote = (%s), signature = (%s)
+                            WHERE checker = (%s);"""),
+                           (bulletin_num_enc, bulletin_num_enc_s, checker_s))
+            #LAST_VOTE_NUMBER -= 1
+            print('Log: Updated record to DB ({}) with hash {}'.format(LAST_VOTE_NUMBER,
+                                                                       hash_calculation(bulletin_num_enc)))
+            db_conn.commit()
+            return True
+        else:
+            print('Log: This user has not participated yet...')
+            return False
 
 
-def remove_voter_from_db(db_conn, db_cur, client_cert):
-    """
-    Remove voter from DB to prohibit voting more than one time
-    """
-    serialn = get_serialn_from_pem(client_cert)
-    voter_name = get_common_name_from_pem(client_cert)
-    db_cur.execute("DELETE FROM eligible_voters WHERE name = (%s) AND serialn = (%s)", (voter_name, serialn))
-    db_conn.commit()
-    print('Log: The user has voted successfully')
+# def remove_voter_from_db(db_conn, db_cur, client_cert):
+#     """
+#     Remove voter from DB to prohibit voting more than one time
+#     """
+#     serialn = get_serialn_from_pem(client_cert)
+#     voter_name = get_common_name_from_pem(client_cert)
+#     db_cur.execute("DEL ETE FROM eligible_voters WHERE name = (%s) AND serialn = (%s)", (voter_name, serialn))
+#     db_conn.commit()
+#     print('Log: The user has voted successfully')
+
+
+def is_voted(name, db_cur, db_conn):
+    #print('name:', name)
+    #print('t_name:', type(name))
+    db_cur.execute(""" SELECT voted FROM eligible_voters
+            WHERE name = '{}';""".format(name))
+
+    status = db_cur.fetchone()[0]
+    if status == 'YES':
+        return '2'
+    else:
+        return '1'
+
 
 
 def threaded_client(c_conn, db_conn, db_cur, priv_key, cand_list_json_str, cand_s):
@@ -97,7 +162,8 @@ def threaded_client(c_conn, db_conn, db_cur, priv_key, cand_list_json_str, cand_
 
     if not is_eligible:
         c_conn.send('False'.encode())
-        message = '{} has not right to take part in this voting or has already taken part in the voting!'.format(get_common_name_from_pem(client_cert))
+        message = '{} has not right to take part in this voting or has already taken part in the voting!'.format(
+            get_common_name_from_pem(client_cert))
         c_conn.send(message.encode('utf-8'))
         # HINT: sign this message to avoid MITM (ex: someone intercept your connection and without signature
         #  can break up connection)
@@ -106,24 +172,63 @@ def threaded_client(c_conn, db_conn, db_cur, priv_key, cand_list_json_str, cand_
         return
 
     else:
+        user_CN = get_common_name_from_pem(client_cert)
         c_conn.send('True'.encode())
+        #action = c_conn.recv(1024).decode('utf-8')
+        action = is_voted(user_CN, db_cur, db_conn)
+        #print('action: ', action)
+        c_conn.send(action.encode('utf-8'))
         # send candidates list and signature
         c_conn.send(cand_list_json_str.encode('utf-8'))
         c_conn.send(cand_s)
 
         # get bulletin from voter and check signature
+        #action = c_conn.recv(1024).decode('utf-8')
+        #print(action)
         bulletin_num_enc = c_conn.recv(2048).decode('utf-8')
+        #print('bulletin_num_enc: ', bulletin_num_enc)
         bulletin_num_enc_s = c_conn.recv(1024)
+        #print('bulletin_num_enc_s: ', bulletin_num_enc_s)
         if not verify_sign(bulletin_num_enc, bulletin_num_enc_s, client_cert):
             print('FAKE SIGNATURE!')
             c_conn.send('FROM SERVER: Your bulletin with hash {} wasn\'t added to DB because of incorrect signature...'
                         .format(hash_calculation(bulletin_num_enc)).encode('utf-8'))
             return
         else:
-            add_vote_to_db(db_conn, db_cur, bulletin_num_enc, priv_key)
-            c_conn.send('FROM SERVER: Your bulletin with hash {} was successfully added to DB'
-                        .format(hash_calculation(bulletin_num_enc)).encode('utf-8'))
-            remove_voter_from_db(db_conn, db_cur, client_cert)
+            if action == '2':
+                r_enc = c_conn.recv(1024).decode('utf-8')
+                #print('r_enc: ', r_enc)
+                s_r_enc = c_conn.recv(1024).decode('utf-8')
+                #print('s_r_enc: ', s_r_enc)
+                #print(client_cert)
+                if verify_sign(r_enc, s_r_enc, client_cert):
+                    r = decrypt_data(r_enc, priv_key, False)
+                else:
+                    print('Log: user {} send incorrect '
+                          'signature to encrypted parameter r'.format(user_CN))
+                    return
+                #print('r:', r)
+            else:
+                r = secrets.randbits(256)
+            res = add_vote_to_db(db_conn, db_cur, bulletin_num_enc, priv_key, r, user_CN, action)
+            if res:
+                c_conn.send('FROM SERVER: Your bulletin with hash {} has been successfully added to DB'
+                            .format(hash_calculation(bulletin_num_enc)).encode('utf-8'))
+                if action == '1':
+                    # OK
+                    status_ok = c_conn.recv(1024).decode('utf-8')
+                    r_enc = encrypt_data(r, client_cert)
+                    s_r_enc = sign_data(r_enc, priv_key)
+                    c_conn.send(r_enc)
+                    c_conn.send(s_r_enc)
+                    #print('server r_enc: ', r_enc)
+                    #print('server s_r_enc: ', s_r_enc)
+                    #print('r: ', r)
+
+            else:
+                c_conn.send('FROM SERVER: Your bulletin with hash {} has not been added to DB...'
+                            .format(hash_calculation(bulletin_num_enc)).encode('utf-8'))
+
 
 
 def database_prep(db_conn, db_cur):
@@ -134,14 +239,14 @@ def database_prep(db_conn, db_cur):
     db_cur.execute(''' DELETE FROM eligible_voters ''')
     db_cur.execute(''' SELECT setval(pg_get_serial_sequence('eligible_voters', 'id'), 1, false) ''')
     db_cur.execute('''
-                INSERT INTO eligible_voters (name, serialn)
-                    VALUES ('GLAEV GEORGIY ANT.', '0d'),
-                    ('ELAEV ALEX VIC.', '0c'),
-                    ('LOMOV VASILIY AN.', '0b'),
-                    ('PETROV PETR IV.', '011'),
-                    ('SIDOROV IVAN BOR.', '010'),
-                    ('SMELTSOV IVAN AL.', '0f'),
-                    ('YAKOV YAN VIC.', '0e');
+                INSERT INTO eligible_voters (name, serialn, voted)
+                    VALUES ('GLAEV GEORGIY ANT.', '0d', 'NO'),
+                    ('ELAEV ALEX VIC.', '0c', 'NO'),
+                    ('LOMOV VASILIY AN.', '0b', 'NO'),
+                    ('PETROV PETR IV.', '011', 'NO'),
+                    ('SIDOROV IVAN BOR.', '010', 'NO'),
+                    ('SMELTSOV IVAN AL.', '0f', 'NO'),
+                    ('YAKOV YAN VIC.', '0e', 'NO');
     ''')
     db_cur.execute(''' DELETE FROM enc_votes ''')
     db_cur.execute(''' SELECT setval(pg_get_serial_sequence('enc_votes', 'vote_id'), 1, false) ''')
@@ -196,7 +301,6 @@ def server_job():
 
     except FileNotFoundError:
         print('FILE NOT FOUND! We can\'t start voting...')
-
 
 # if __name__ == '__main__':
 #     db_conn, db_cur = connect_to_db()

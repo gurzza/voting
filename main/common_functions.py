@@ -27,6 +27,8 @@ def encrypt_data(a_message, pub_key):
     """
     rsaKey_pub = RSA.importKey(pub_key)
     encryptor = PKCS1_OAEP.new(rsaKey_pub)
+    if isinstance(a_message, int):
+        a_message = str(a_message)
     encrypted_msg = encryptor.encrypt(a_message.encode('utf-8'))
     encoded_encrypted_msg = base64.b64encode(encrypted_msg)
     return encoded_encrypted_msg
@@ -222,12 +224,17 @@ def close_connection_to_db(conn, cur):
 
 
 def hash_calculation(text):
+    """
+    :param text: str or byte
+    :return: SHA256
+    """
     digest = SHA256.new()
     if isinstance(text, bytes):
         digest.update(base64.b64encode(text))
     else:
         digest.update(base64.b64encode(text.encode('utf-8')))
     return digest.hexdigest()
+
 
 
 #def produce_hmac(message: str, key)

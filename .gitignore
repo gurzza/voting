@@ -3,3 +3,4 @@
 /.idea/
 /ca_cert/*.key
 /main/test*
+/priv_r/*
